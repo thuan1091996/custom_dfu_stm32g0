@@ -81,7 +81,7 @@ extern "C"
 #define FLASH_WP_PIN           GPIO_PIN_11
 #define SPI1_NSS_PIN_NUMBER    15
 #define FLASH_RESET_PIN_NUMBER 10
-#define FLASH_WP_PIN_NUMBER    11s
+#define FLASH_WP_PIN_NUMBER    11
     /* USER CODE END Private defines */
 
 #ifdef __cplusplus

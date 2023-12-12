@@ -17,6 +17,10 @@
  */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
+#include <stdint.h>
+#include <stdbool.h>
+#include <stdio.h>
+
 #include "main.h"
 #include "adc.h"
 #include "gpio.h"
@@ -112,8 +116,7 @@ int main(void)
  * @brief System Clock Configuration
  * @retval None
  */
-void
-SystemClock_Config(void)
+void SystemClock_Config(void)
 {
     RCC_OscInitTypeDef RCC_OscInitStruct = {0};
     RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
@@ -128,9 +131,9 @@ SystemClock_Config(void)
     RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
     RCC_OscInitStruct.HSEState = RCC_HSE_BYPASS;
     RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
     RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV1;
-    RCC_OscInitStruct.PLL.PLLN = 16;
+    RCC_OscInitStruct.PLL.PLLN = 8;
     RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
     RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
     if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
@@ -160,8 +163,7 @@ SystemClock_Config(void)
  * @brief  This function is executed in case of error occurrence.
  * @retval None
  */
-void
-Error_Handler(void)
+void Error_Handler(void)
 {
     /* USER CODE BEGIN Error_Handler_Debug */
     /* User can add his own implementation to report the HAL error return state
@@ -181,8 +183,7 @@ Error_Handler(void)
  * @param  line: assert_param error line source number
  * @retval None
  */
-void
-assert_failed(uint8_t *file, uint32_t line)
+void assert_failed(uint8_t *file, uint32_t line)
 {
     /* USER CODE BEGIN 6 */
     /* User can add his own implementation to report the file name and line
