@@ -40,6 +40,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define FLASH_TEST_MX25 (1)
 
 /* USER CODE END PD */
 
@@ -51,7 +52,15 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+#if (FLASH_TEST_MX25 == 1)
+uint8_t flash_info[20] = {0};
+volatile bool g_test_flash = false;
+#include "MX25Series.h"
 
+MX25Series_t flash_test = {0};
+uint8_t buff_read[512] = {0};
+uint8_t buff_write[10] = {1, 2, 3};
+#endif /* End of (FLASH_TEST_MX25 == 1) */
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -111,7 +120,26 @@ int main(void)
     MX_SPI2_Init();
     MX_USART1_UART_Init();
     /* USER CODE BEGIN 2 */
+#if (FLASH_TEST_MX25 != 0)
+    if (MX25Series_status_ok == MX25Series_init(&flash_test, &MX25R6435F_Chip_Def_Low_Power, SPI1_NSS_PIN_NUMBER,
+                                                FLASH_RESET_PIN_NUMBER, FLASH_WP_PIN_NUMBER, 0, &hspi1))
+    {
+        if (MX25Series_status_ok == MX25Series_read_identification(&flash_test, &flash_info[0], &flash_info[1], &flash_info[2]))
+        {
+            printf("MX25Series_init ok\r\n");
 
+            MX25Series_read_stored_data(&flash_test, true, 0x8000, 512, buff_read);
+            //			MX25Series_set_write_enable(&flash_test, 1);
+            //			MX25Series_write_stored_data(&flash_test, 0x1000, 10, buff_write);
+            //			MX25Series_read_stored_data(&flash_test, true, 0x1000, 10, buff_read);
+//            continue;
+        }
+        else
+            printf("MX25Series_read_manufacture_and_device_id fail\r\n");
+    }
+    else
+        printf("MX25Series_init fail\r\n");
+#endif
     /* USER CODE END 2 */
 
     /* Infinite loop */
