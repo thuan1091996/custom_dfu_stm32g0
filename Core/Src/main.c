@@ -85,6 +85,24 @@ PUTCHAR_PROTOTYPE
 
   return ch;
 }
+
+// Config all external flash pins as analog input
+void flash_pin_config_as_analog_input(void)
+{
+
+//	__HAL_RCC_GPIOC_CLK_ENABLE();
+//	__HAL_RCC_GPIOA_CLK_ENABLE();
+//	__HAL_RCC_GPIOB_CLK_ENABLE();
+
+	/*Configure GPIO pin : SPI2 NSS */
+    HAL_GPIO_DeInit(GPIOA, FLASH_RESET_PIN_Pin | FLASH_WP_PIN_Pin | SPI2_NSS_Pin);
+
+    /*Configure GPIO pin : SPI2 CLK */
+    HAL_GPIO_DeInit(GPIOB, GPIO_PIN_13);
+
+    /*Configure GPIO pin : SPI2 MISO, MOSI */
+    HAL_GPIO_DeInit(GPIOC, GPIO_PIN_2 | GPIO_PIN_3);
+}
 /* USER CODE END 0 */
 
 /**
@@ -140,6 +158,7 @@ int main(void)
     else
         printf("MX25Series_init fail\r\n");
 #endif
+    flash_pin_config_as_analog_input();
     /* USER CODE END 2 */
 
     /* Infinite loop */
