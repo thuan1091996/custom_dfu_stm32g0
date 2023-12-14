@@ -26,6 +26,7 @@
 #include "gpio.h"
 #include "spi.h"
 #include "usart.h"
+#include "dfu.h"
 
 
 /* Private includes ----------------------------------------------------------*/
@@ -40,9 +41,9 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define FLASH_TEST_MX25     (1)
-#define MX25_SPI_PORT1      (0) /* 1 -> SPI1, 0 -> SPI2 */
-
+#define FLASH_TEST_MX25                 (1)
+#define MX25_SPI_PORT1                  (0) /* 1 -> SPI1, 0 -> SPI2 */
+#define MX25_DEFAULT_IMG_ADDR           (0x8000)
 #if (MX25_SPI_PORT1 != 0)
 #warning  "De-init SPI1 pins currently still not supported (nRF will failed to read flash)"
 #endif
@@ -164,12 +165,15 @@ int main(void)
         if (MX25Series_status_ok == MX25Series_read_identification(&flash_test, &flash_info[0], &flash_info[1], &flash_info[2]))
         {
             printf("MX25Series_init ok\r\n");
-
-            MX25Series_read_stored_data(&flash_test, true, 0x8000, 512, buff_read);
-            //			MX25Series_set_write_enable(&flash_test, 1);
-            //			MX25Series_write_stored_data(&flash_test, 0x1000, 10, buff_write);
-            //			MX25Series_read_stored_data(&flash_test, true, 0x1000, 10, buff_read);
-//            continue;
+            // Check valid image
+            if (!is_image_valid(MX25_DEFAULT_IMG_ADDR))
+            {
+                printf("Found valid image \r\n");
+            }
+            else
+            {
+                printf("Image is invalid\r\n");
+            }
         }
         else
             printf("MX25Series_read_manufacture_and_device_id fail\r\n");
