@@ -346,44 +346,78 @@ MX25Series_status_enum_t MX25Series_write_security_register(MX25Series_t *dev, u
     return result;
 }
 
+#include <assert.h>
 #include "main.h"
 #include "spi.h"
-
-extern SPI_HandleTypeDef hspi1;
-extern SPI_HandleTypeDef hspi2;
+#define TEST_HAL_API        (0)
 
 MX25Series_status_enum_t MX25Series___issue_command(MX25Series_t *dev, MX25Series_COMMAND_enum_t command)
 {
     assert(dev != NULL);
-    HAL_StatusTypeDef status = HAL_SPI_Transmit(&hspi2, (uint8_t *) &command, sizeof(command), HAL_MAX_DELAY);
+    uint8_t issue_cmd = command;
+    #if (TEST_HAL_API != 0)
+    uint8_t spi_port = *(uint8_t*)dev->ctx;
+    if (sizeof(issue_cmd) != hal__SPIWRITE(spi_port, &issue_cmd, sizeof(issue_cmd)))
+    {
+        return MX25Series_status_error;
+    }
+    return MX25Series_status_ok;
+    #else /* !(TEST_HAL_API != 0) */
+    // Get SPI handler
+    SPI_HandleTypeDef *hspi = (SPI_HandleTypeDef*)dev->ctx;
+    HAL_StatusTypeDef status = HAL_SPI_Transmit(hspi, &issue_cmd, sizeof(issue_cmd), HAL_MAX_DELAY);
     if (status == HAL_OK)
     {
         return MX25Series_status_ok;
     }
     return MX25Series_status_error;
+    #endif /* End of (TEST_HAL_API != 0) */
 }
 
 MX25Series_status_enum_t MX25Series___read(MX25Series_t *dev, size_t length, uint8_t *buffer)
 {
     assert(dev != NULL);
     memset(buffer, 0, length);
-    HAL_StatusTypeDef status = HAL_SPI_Receive(&hspi2, buffer, length, HAL_MAX_DELAY);
+    #if (TEST_HAL_API != 0)
+    uint8_t spi_port = *(uint8_t*)dev->ctx;
+    if (hal__SPIREAD(spi_port, buffer, length) != length )
+    {
+        return MX25Series_status_error;
+    }
+    return MX25Series_status_ok;
+    #else /* !(TEST_HAL_API != 0) */
+    // Get SPI handler
+    SPI_HandleTypeDef *hspi = (SPI_HandleTypeDef*)dev->ctx;
+    HAL_StatusTypeDef status = HAL_SPI_Receive(hspi, buffer, length, HAL_MAX_DELAY);
     if (status == HAL_OK)
     {
         return MX25Series_status_ok;
     }
     return MX25Series_status_error;
+    #endif /* End of (TEST_HAL_API != 0) */
+
 }
 
 MX25Series_status_enum_t MX25Series___write(MX25Series_t *dev, size_t length, uint8_t *buffer)
 {
     assert(dev != NULL);
-    HAL_StatusTypeDef status = HAL_SPI_Transmit(&hspi2, buffer, length, HAL_MAX_DELAY);
+    #if (TEST_HAL_API != 0)
+    uint8_t spi_port = *(uint8_t*)dev->ctx;
+    if (hal__SPIWRITE(spi_port, buffer, length) != length)
+    {
+        return MX25Series_status_error;
+    }
+    return MX25Series_status_ok;
+    #else /* !(TEST_HAL_API != 0) */
+    // Get SPI handler
+    SPI_HandleTypeDef *hspi = (SPI_HandleTypeDef*)dev->ctx;
+    HAL_StatusTypeDef status = HAL_SPI_Transmit(hspi, buffer, length, HAL_MAX_DELAY);
     if (status == HAL_OK)
     {
         return MX25Series_status_ok;
     }
     return MX25Series_status_error;
+    #endif /* End of (TEST_HAL_API != 0) */
 }
 
 void MX25Series___enable_cs_pin(MX25Series_t *dev, bool value)
