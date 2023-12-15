@@ -43,7 +43,7 @@
 /* USER CODE BEGIN PD */
 #define FLASH_TEST_MX25                 (1)
 #define MX25_SPI_PORT1                  (0) /* 1 -> SPI1, 0 -> SPI2 */
-#define MX25_DEFAULT_IMG_ADDR           (0x8000)
+#define MX25_DEFAULT_IMG_ADDR           (0x7000)
 #if (MX25_SPI_PORT1 != 0)
 #warning  "De-init SPI1 pins currently still not supported (nRF will failed to read flash)"
 #endif
@@ -93,28 +93,21 @@ PUTCHAR_PROTOTYPE
 }
 
 // Config all external flash pins as analog input
-void flash_pin_config_as_analog_input(void)
+void flash_pins_deinit(void)
 {
-	__HAL_RCC_GPIOA_CLK_ENABLE();
-	__HAL_RCC_GPIOB_CLK_ENABLE();
-	__HAL_RCC_GPIOC_CLK_ENABLE();
-
     HAL_GPIO_DeInit(GPIOA, FLASH_RESET_PIN_Pin | FLASH_WP_PIN_Pin);
     #if (MX25_SPI_PORT1 != 0)
 
-    HAL_GPIO_DeInit(GPIOB, GPIO_PIN_3|GPIO_PIN_4|GPIO_PIN_5);
     /*Configure GPIO pin : SPI1 NSS */
-    
     HAL_GPIO_DeInit(SPI1_NSS_GPIO_Port, SPI1_NSS_Pin);
-    #else /* !(MX25_SPI_PORT1 != 0) */
-    /*Configure GPIO pin : SPI2 NSS */
-    
-    HAL_GPIO_DeInit(SPI2_NSS_GPIO_Port, SPI2_NSS_Pin);
-    /*Configure GPIO pin : SPI2 CLK */
-    HAL_GPIO_DeInit(GPIOB, GPIO_PIN_13);
+    HAL_SPI_MspDeInit(&hspi1);
 
-    /*Configure GPIO pin : SPI2 MISO, MOSI */
-    HAL_GPIO_DeInit(GPIOC, GPIO_PIN_2 | GPIO_PIN_3);
+    #else /* !(MX25_SPI_PORT1 != 0) */
+
+    /*Configure GPIO pin : SPI2 NSS */
+    HAL_GPIO_DeInit(SPI2_NSS_GPIO_Port, SPI2_NSS_Pin);
+    HAL_SPI_MspDeInit(&hspi2);
+
     #endif /* End of (MX25_SPI_PORT1 != 0) */
 
 }
@@ -181,7 +174,7 @@ int main(void)
     else
         printf("MX25Series_init fail\r\n");
 #endif
-    flash_pin_config_as_analog_input();
+    flash_pins_deinit();
     /* USER CODE END 2 */
 
     /* Infinite loop */
