@@ -82,7 +82,7 @@
 
 #define SPI_MAX_TIMEOUT     3000
 
-int m_SPI__writebyte(int data) {
+int m_SPI__writebyte(uint8_t data) {
 	uint8_t transmit_byte = data;
     if (HAL_SPI_Transmit(&hspi2, (uint8_t *)&transmit_byte, 1, SPI_MAX_TIMEOUT) != HAL_OK) {
         return -1;
@@ -188,7 +188,7 @@ void N25Q_ReadDataFromAddress(uint8_t * dataBuffer, int startingAddress, int len
 	testprintf("Ended!\r\n");
 }
 
-void N25Q_ProgramFromAddress(int * dataBuffer, int startingAddress, int length){
+void N25Q_ProgramFromAddress(uint8_t* dataBuffer, int startingAddress, int length){
 	testprintf("\r\nEntering %s ...", __PRETTY_FUNCTION__);
 
 	dbgprintf("Writing Data From");
@@ -214,13 +214,12 @@ void N25Q_ProgramFromAddress(int * dataBuffer, int startingAddress, int length){
 	dbgprintf("\r\n");
 	SlaveDeSelect();
 
-	while (N25Q_isBusy()){
-	}
+	while (N25Q_isBusy());
 
 	testprintf("Ended!\r\n");
 }
 
-void N25Q_NonBlockingProgramFromAddress(int * dataBuffer, int startingAddress, int length){
+void N25Q_NonBlockingProgramFromAddress(uint8_t * dataBuffer, int startingAddress, int length){
 	testprintf("\r\nEntering %s ...", __PRETTY_FUNCTION__);
 
 	dbgprintf("Writing Data From");
