@@ -32,6 +32,10 @@
 ******************************************************************************
 */
 
+TARGET(binary)
+INPUT("../fw.bin")
+OUTPUT_FORMAT(default) /* restore the out file format */
+
 /* Entry Point */
 ENTRY(Reset_Handler)
 
@@ -59,6 +63,11 @@ SECTIONS
     . = ALIGN(4);
   } >FLASH
 
+  /* TODO: TMT */
+  /* .text 0x08007000 : {
+      "../fw.bin"
+  } >FLASH */
+
   /* The program code and other data into "FLASH" Rom type memory */
   .text :
   {
@@ -74,6 +83,15 @@ SECTIONS
 
     . = ALIGN(4);
     _etext = .;        /* define a global symbols at end of code */
+  } >FLASH
+
+  /* Firmware binary */
+  .fw_bin_data : {
+      . = ALIGN(4);
+      _start_fw_data = .;
+      KEEP ("../fw.bin")
+      _end_fw_data = .;
+      . = ALIGN(4);
   } >FLASH
 
   /* Constant data into "FLASH" Rom type memory */

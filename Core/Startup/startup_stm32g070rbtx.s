@@ -44,6 +44,10 @@ defined in linker script */
 /* end address for the .bss section. defined in linker script */
 .word _ebss
 
+/* start address of firmware binary data. defined in linker script */
+.word _start_fw_data
+/* end address of firmware binary data. defined in linker script */
+.word _end_fw_data
 /**
  * @brief  This is the code that gets called when the processor first
  *          starts execution following a reset event. Only the absolutely
