@@ -186,14 +186,13 @@ int dfu_storage_flash_init(const struct device *storage_dev)
  */
 int dfu_init(const struct device *storage_dev)
 {
-#if (DFU_STORAGE_EXT_FLASH == 1)
+#if ((DFU_STORAGE_EXT_FLASH == 1) && (DFU_STORAGE_SPI_STM32 != 1))
     if (0 != dfu_storage_flash_init(storage_dev))
     {
         LOG_ERR("Failed to init DFU flash storage\r\n");
         return -1;
     }
 #else
-#warning "Implement appropreate driver"
 #endif /* End of (DFU_STORAGE_EXT_FLASH == 1) */
     return 0;
 }

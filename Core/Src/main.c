@@ -17,20 +17,21 @@
  */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
-#include <stdint.h>
-#include <stdbool.h>
-#include <stdio.h>
-
 #include "main.h"
 #include "adc.h"
 #include "gpio.h"
 #include "spi.h"
 #include "usart.h"
-#include "dfu.h"
-
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <math.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+
+#include "n25q128a.h"
 
 /* USER CODE END Includes */
 
@@ -41,12 +42,22 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define FLASH_TEST_MX25                 (1)
-#define MX25_SPI_PORT1                  (0) /* 1 -> SPI1, 0 -> SPI2 */
-#define MX25_DEFAULT_IMG_ADDR           (0x7000)
+#define FLASH_TEST_MX25 (0)
+#define FLASH_TEST_N25Q (1)
+#if (FLASH_TEST_MX25 != 0)
+
+#define MX25_SPI_PORT1 (0) /* 1 -> SPI1, 0 -> SPI2 */
+#define MX25_DEFAULT_IMG_ADDR (0x7000)
 #if (MX25_SPI_PORT1 != 0)
-#warning  "De-init SPI1 pins currently still not supported (nRF will failed to read flash)"
+#warning "De-init SPI1 pins currently still not supported (nRF will failed to read flash)"
 #endif
+#endif /* End of (FLASH_TEST_MX25 != 0) */
+
+#if (FLASH_TEST_N25Q != 0)
+#define FLASH_N25_MANUFACTURE_ID (0x20)
+#define FLASH_N25_MEM_TYPE_ID (0xBA)
+#define FLASH_N25_MEM_CAPACITY_ID (0x19)   // 256Mbit
+#endif                                     /* End of (FLASH_TEST_N25Q != 0)) */
 
 /* USER CODE END PD */
 
@@ -58,15 +69,21 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-#if (FLASH_TEST_MX25 == 1)
+/* Symbols relate to FW RFIC (defined in linker script) */
+extern int _binary____fw_bin_start, _binary____fw_bin_end;
+// TODO - TMT: Define symbols relate to FW RFIC (defined in linker script)
+// https://mcuoneclipse.com/2016/11/01/getting-the-memory-range-of-sections-with-gnu-linker-files/
+
 uint8_t flash_info[20] = {0};
-volatile bool g_test_flash = false;
+
+#if (FLASH_TEST_MX25 == 1)
 #include "MX25Series.h"
 
+volatile bool g_test_flash = false;
 MX25Series_t flash_test = {0};
-uint8_t buff_read[512] = {0};
-uint8_t buff_write[10] = {1, 2, 3};
+
 #endif /* End of (FLASH_TEST_MX25 == 1) */
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -79,37 +96,141 @@ void SystemClock_Config(void);
 /* USER CODE BEGIN 0 */
 #define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
 /**
-  * @brief  Retargets the C library printf function to the USART.
-  * @param  None
-  * @retval None
-  */
+ * @brief  Retargets the C library printf function to the USART.
+ * @param  None
+ * @retval None
+ */
 PUTCHAR_PROTOTYPE
 {
-  /* Place your implementation of fputc here */
-  /* e.g. write a character to the USART1 and Loop until the end of transmission */
-  HAL_UART_Transmit(&huart1, (uint8_t *)&ch, 1, 0xFFFF);
+    /* Place your implementation of fputc here */
+    /* e.g. write a character to the USART1 and Loop until the end of transmission */
+    HAL_UART_Transmit(&huart2, (uint8_t *) &ch, 1, 0xFFFF);
 
-  return ch;
+    return ch;
+}
+
+#if (FLASH_TEST_MX25 != 0)
+
+int flash_mx25_init(void)
+{
+
+#if (MX25_SPI_PORT1 != 0)
+
+    if (MX25Series_status_ok == MX25Series_init(&flash_test, &MX25R6435F_Chip_Def_Low_Power, SPI1_NSS_PIN_NUMBER,
+                                                FLASH_RESET_PIN_NUMBER, FLASH_WP_PIN_NUMBER, 0, &hspi1))
+#else  /* !(MX25_SPI_PORT1 != 0) */
+    if (MX25Series_status_ok == MX25Series_init(&flash_test, &MX25R6435F_Chip_Def_Low_Power, SPI2_NSS_PIN_NUMBER,
+                                                FLASH_RESET_PIN_NUMBER, FLASH_WP_PIN_NUMBER, 0, &hspi2))
+#endif /* End of (MX25_SPI_PORT1 != 0) */
+    {
+        if (MX25Series_status_ok ==
+            MX25Series_read_identification(&flash_test, &flash_info[0], &flash_info[1], &flash_info[2]))
+        {
+            printf("MX25Series_init ok\r\n");
+            // Check valid image
+            if (!is_image_valid(MX25_DEFAULT_IMG_ADDR))
+            {
+                printf("Found valid image \r\n");
+            }
+            else
+            {
+                printf("Image is invalid\r\n");
+            }
+        }
+        else
+            printf("MX25Series_read_manufacture_and_device_id fail\r\n");
+    }
+    else
+        printf("MX25Series_init fail\r\n");
+    return 0;
 }
 
 // Config all external flash pins as analog input
-void flash_pins_deinit(void)
+void flash_mx25_deinit(void)
 {
     HAL_GPIO_DeInit(GPIOA, FLASH_RESET_PIN_Pin | FLASH_WP_PIN_Pin);
-    #if (MX25_SPI_PORT1 != 0)
+#if (MX25_SPI_PORT1 != 0)
 
     /*Configure GPIO pin : SPI1 NSS */
     HAL_GPIO_DeInit(SPI1_NSS_GPIO_Port, SPI1_NSS_Pin);
     HAL_SPI_MspDeInit(&hspi1);
 
-    #else /* !(MX25_SPI_PORT1 != 0) */
+#else  /* !(MX25_SPI_PORT1 != 0) */
 
     /*Configure GPIO pin : SPI2 NSS */
     HAL_GPIO_DeInit(SPI2_NSS_GPIO_Port, SPI2_NSS_Pin);
     HAL_SPI_MspDeInit(&hspi2);
+#endif /* End of (MX25_SPI_PORT1 != 0) */
+}
+#endif /* (FLASH_TEST_MX25 != 0) */
 
-    #endif /* End of (MX25_SPI_PORT1 != 0) */
+int flash_n25q_init(void)
+{
+#define FLASH_N25_READ_ID_LEN (20)
+    uint8_t flash_id[FLASH_N25_READ_ID_LEN] = {0};
+    // DQ2, DQ3 must be high for SPI operation
+    HAL_GPIO_WritePin(FLASH_RESET_PORT, FLASH_RESET_PIN, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(FLASH_WP_PORT, FLASH_WP_PIN, GPIO_PIN_SET);
+    // Check flash ID
+    N25Q_ReadID(flash_id, sizeof(flash_id));
+    if ((flash_id[0] != FLASH_N25_MANUFACTURE_ID) || (flash_id[1] != FLASH_N25_MEM_TYPE_ID))
+    {
+        printf("[ERR] Flash ID is not correct \r\n");
+        return -1;
+    }
+    if (flash_id[2] != FLASH_N25_MEM_CAPACITY_ID)
+    {
+        printf("[ERR] Flash capacity is not correct \r\n");
+    }
+    return 0;
+}
 
+/* For testing only */
+int rfic_fw[] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A};
+/* End for testing only */
+
+
+#define FLASH_N25_RFIC_FW_START_ADDR (0x003F0000)   // Start address of RFIC FW in external memory
+#define FLASH_N25_RFIC_FW_SIZE sizeof(rfic_fw)      // Size of RFIC FW in firmware (fw.bin file)
+
+
+int flash_n25q_rfic_fwupdate(void)
+{
+    int ext_flash_read_buf[FLASH_N25_RFIC_FW_SIZE] = {0};
+    // Read RFIC FW from external memory
+    N25Q_ReadDataFromAddress(ext_flash_read_buf, (uint32_t) FLASH_N25_RFIC_FW_START_ADDR, FLASH_N25_RFIC_FW_SIZE);
+    // Compare RFIC FW
+    if (memcmp(ext_flash_read_buf, rfic_fw, FLASH_N25_RFIC_FW_SIZE) == 0)
+    {
+        printf("[INFO] Found valid RFIC FW, size = %d bytes \r\n", FLASH_N25_RFIC_FW_SIZE);
+        return 0;
+    }
+    printf("[ERR] No valid RFIC FW found, re-writing RFIC FW to external memory ... \r\n");
+#if 1
+    N25Q_BulkErase();
+#else
+    // Calculate number of sectors need to erase
+    uint32_t num_sector = ceil((float) FLASH_N25_RFIC_FW_SIZE / N25Q128A_SECTOR_SIZE);
+    // Erase sectors
+    for (uint32_t i = 0; i < num_sector; i++)
+    {
+        N25Q_SectorErase(FLASH_N25_RFIC_FW_START_ADDR + i * N25Q128A_SECTOR_SIZE);
+    }
+
+#endif /* End of 0 */
+    N25Q_ReadDataFromAddress(ext_flash_read_buf, (uint32_t) FLASH_N25_RFIC_FW_START_ADDR, FLASH_N25_RFIC_FW_SIZE);
+
+    // Write RFIC FW to external memory
+    N25Q_ProgramFromAddress(rfic_fw, (uint32_t) FLASH_N25_RFIC_FW_START_ADDR, FLASH_N25_RFIC_FW_SIZE);
+    // Read back RFIC FW from external memory
+    N25Q_ReadDataFromAddress(ext_flash_read_buf, (uint32_t) FLASH_N25_RFIC_FW_START_ADDR, FLASH_N25_RFIC_FW_SIZE);
+    // Compare RFIC FW
+    if (memcmp(ext_flash_read_buf, rfic_fw, FLASH_N25_RFIC_FW_SIZE) != 0)
+    {
+        printf("[ERR] Failed to write RFIC FW to external memory \r\n");
+        return -1;
+    }
+    return 0;
 }
 /* USER CODE END 0 */
 
@@ -123,7 +244,7 @@ int main(void)
 
     /* USER CODE END 1 */
 
-    /* MCU Configuration-------------------------------------------------------- */
+    /* MCU Configuration--------------------------------------------------------*/
 
     /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
     HAL_Init();
@@ -145,36 +266,18 @@ int main(void)
     MX_SPI1_Init();
     MX_SPI2_Init();
     MX_USART1_UART_Init();
+    MX_USART2_UART_Init();
     /* USER CODE BEGIN 2 */
-#if (FLASH_TEST_MX25 != 0)
-    #if (MX25_SPI_PORT1 != 0)
-    if (MX25Series_status_ok == MX25Series_init(&flash_test, &MX25R6435F_Chip_Def_Low_Power, SPI1_NSS_PIN_NUMBER,
-                                                FLASH_RESET_PIN_NUMBER, FLASH_WP_PIN_NUMBER, 0, &hspi1))
-    #else /* !(MX25_SPI_PORT1 != 0) */
-    if (MX25Series_status_ok == MX25Series_init(&flash_test, &MX25R6435F_Chip_Def_Low_Power, SPI2_NSS_PIN_NUMBER,
-                                                FLASH_RESET_PIN_NUMBER, FLASH_WP_PIN_NUMBER, 0, &hspi2))
-    #endif /* End of (MX25_SPI_PORT1 != 0) */
+    if (flash_n25q_init() != 0)
     {
-        if (MX25Series_status_ok == MX25Series_read_identification(&flash_test, &flash_info[0], &flash_info[1], &flash_info[2]))
-        {
-            printf("MX25Series_init ok\r\n");
-            // Check valid image
-            if (!is_image_valid(MX25_DEFAULT_IMG_ADDR))
-            {
-                printf("Found valid image \r\n");
-            }
-            else
-            {
-                printf("Image is invalid\r\n");
-            }
-        }
-        else
-            printf("MX25Series_read_manufacture_and_device_id fail\r\n");
+        printf("[ERR] flash_n25q_init() failed \r\n");
     }
-    else
-        printf("MX25Series_init fail\r\n");
-#endif
-    flash_pins_deinit();
+
+    if (flash_n25q_rfic_fwupdate() != 0)
+    {
+        printf("[ERR] flash_n25q_rfic_fwupdate() failed \r\n");
+    }
+
     /* USER CODE END 2 */
 
     /* Infinite loop */
@@ -266,6 +369,8 @@ void assert_failed(uint8_t *file, uint32_t line)
     /* User can add his own implementation to report the file name and line
        number, ex: printf("Wrong parameters value: file %s on line %d\r\n",
        file, line) */
+    printf("Wrong parameters value: file %s on line %d\r\n", file, (int) line);
+
     /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
