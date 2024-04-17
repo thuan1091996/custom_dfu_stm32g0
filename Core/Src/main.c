@@ -32,6 +32,7 @@
 #include <string.h>
 
 #include "n25q128a.h"
+#include "dfu.h"
 
 /* USER CODE END Includes */
 
@@ -65,12 +66,14 @@ MX25Series_t flash_test = {0};
 #define FLASH_N25_MANUFACTURE_ID                (0x20)
 #define FLASH_N25_MEM_TYPE_ID                   (0xBA)
 #define FLASH_N25_MEM_CAPACITY_ID               (0x19)   // 256Mbit
-#define FLASH_N25_READ_ID_MSG_LEN (20)
+#define FLASH_N25_READ_ID_MSG_LEN               (20)
 
 
 // ====================== FW ====================== //
-#define FLASH_N25_FW_START_ADDR            (0x000000)
-
+/* Symbols relate to FW binary data (defined in linker script) */
+extern int _start_fw_data, _end_fw_data;
+const uint8_t* fw_binary_data_start = (uint8_t*) &_start_fw_data;
+const uint8_t* fw_binary_data_end = (uint8_t*) &_end_fw_data;
 #endif /* End of (FLASH_TEST_N25Q != 0)) */
 
 /* USER CODE END PD */
@@ -83,11 +86,6 @@ MX25Series_t flash_test = {0};
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-/* Symbols relate to FW binary data (defined in linker script) */
-extern int _start_fw_data, _end_fw_data;
-uint8_t* fw_binary_data_start = (uint8_t*) &_start_fw_data;
-uint8_t* fw_binary_data_end = (uint8_t*) &_end_fw_data;
-uint32_t fw_binary_data_len = 0;
 
 /* USER CODE END PV */
 
@@ -133,7 +131,7 @@ int flash_mx25_init(void)
         {
             printf("MX25Series_init ok\r\n");
             // Check valid image
-            if (!is_image_valid(MX25_DEFAULT_IMG_ADDR))
+            if (!dfu_image_is_valid(MX25_DEFAULT_IMG_ADDR))
             {
                 printf("Found valid image \r\n");
             }
@@ -187,57 +185,9 @@ int flash_n25q_init(void)
         printf("[ERR] Flash capacity is not correct \r\n");
     }
 
-    fw_binary_data_len = _end_fw_data - _start_fw_data;
-    assert(fw_binary_data_len > 0);
-    
     return 0;
 }
 
-int flash_n25q_fw_validate()
-{
-    
-}
-
-int flash_n25q_fw_update(void)
-{
-    int ext_flash_read_buf[fw_binary_data_len];
-    memset(ext_flash_read_buf, 0, sizeof(ext_flash_read_buf));
-    
-    // Read FW from external memory
-    N25Q_ReadDataFromAddress(ext_flash_read_buf, (uint32_t) FLASH_N25_FW_START_ADDR, fw_binary_data_len);
-    // Compare FW content
-    if (memcmp(ext_flash_read_buf, fw_binary_data_start, fw_binary_data_len) == 0)
-    {
-        printf("[INFO] Found valid Firmware, size = %d bytes \r\n", (int)fw_binary_data_len);
-        return 0;
-    }
-    printf("[ERR] No valid Firmware found, re-writing Firmware to external memory ... \r\n");
-#if !1 // TODO - TMT: CHECKME
-    N25Q_BulkErase();
-#else
-    // Calculate number of sectors need to erase
-    uint32_t num_sector = ceil((float) fw_binary_data_len / N25Q128A_SECTOR_SIZE);
-    // Erase sectors
-    for (uint32_t i = 0; i < num_sector; i++)
-    {
-        N25Q_SectorErase(FLASH_N25_FW_START_ADDR + i * N25Q128A_SECTOR_SIZE);
-    }
-
-#endif /* End of 0 */
-    N25Q_ReadDataFromAddress(ext_flash_read_buf, (uint32_t) FLASH_N25_FW_START_ADDR, fw_binary_data_len);
-
-    // Write Firmware to external memory
-    N25Q_ProgramFromAddress(fw_binary_data_start, (uint32_t) FLASH_N25_FW_START_ADDR, fw_binary_data_len);
-    // Read back Firmware from external memory
-    N25Q_ReadDataFromAddress(ext_flash_read_buf, (uint32_t) FLASH_N25_FW_START_ADDR, fw_binary_data_len);
-    // Compare Firmware
-    if (memcmp(ext_flash_read_buf, fw_binary_data_start, fw_binary_data_len) != 0)
-    {
-        printf("[ERR] Failed to write Firmware to external memory \r\n");
-        return -1;
-    }
-    return 0;
-}
 /* USER CODE END 0 */
 
 /**
@@ -279,9 +229,9 @@ int main(void)
         printf("[ERR] flash_n25q_init() failed \r\n");
     }
 
-    if (flash_n25q_fw_update() != 0)
+    if (dfu_fw_image_update(fw_binary_data_start, fw_binary_data_end - fw_binary_data_start, FLASH_N25_FW_START_ADDR) != 0)
     {
-        printf("[ERR] flash_n25q_fw_update() failed \r\n");
+        printf("[ERR] dfu_fw_image_update() failed \r\n");
     }
 
     /* USER CODE END 2 */

@@ -14,21 +14,18 @@
 /******************************************************************************
  * Includes
  *******************************************************************************/
-#include "dfu.h"
-#include "crc32.h"
+#include <stdio.h>
+#include <string.h>
 #include <assert.h>
 #include <math.h>
 
+#include "dfu.h"
+#include "crc32.h"
+#include "n25q128a.h"
 
 /******************************************************************************
  * Module Preprocessor Constants
  *******************************************************************************/
-#if !(DFU_STORAGE_EXT_FLASH == 1)
-#define LOG_ERR(...) printf(__VA_ARGS__)
-#define LOG_WRN(...) printf(__VA_ARGS__)
-#define LOG_INF(...) printf(__VA_ARGS__)
-
-#endif /* End of (DFU_STORAGE_EXT_FLASH == 1) */
 
 /******************************************************************************
  * Module Preprocessor Macros
@@ -54,7 +51,7 @@
 /******************************************************************************
  * Flash HAL Functions
  *******************************************************************************/
-#if (DFU_STORAGE_EXT_FLASH == 1)
+#if (DFU_STORAGE_SPI_ZEPHYR == 1)
 static const struct device *storage_device_handle = NULL;
 
 typedef struct
@@ -186,18 +183,19 @@ int dfu_storage_flash_init(const struct device *storage_dev)
  */
 int dfu_init(const struct device *storage_dev)
 {
-#if ((DFU_STORAGE_EXT_FLASH == 1) && (DFU_STORAGE_SPI_STM32 != 1))
+#if ((DFU_STORAGE_SPI_ZEPHYR == 1) && (DFU_STORAGE_SPI_STM32 != 1))
     if (0 != dfu_storage_flash_init(storage_dev))
     {
         LOG_ERR("Failed to init DFU flash storage\r\n");
         return -1;
     }
 #else
-#endif /* End of (DFU_STORAGE_EXT_FLASH == 1) */
+#warning "Implement appropreate driver"
+#endif /* End of (DFU_STORAGE_SPI_ZEPHYR == 1) */
     return 0;
 }
 
-#elif (DFU_STORAGE_SPI_STM32 == 1)
+#elif (DFU_STORAGE_SPI_STM32 == 1) && (DFU_STORAGE_SPI_MX25 == 1)
 #include "MX25Series.h"
 extern MX25Series_t flash_test;
 int dfu_storage_read(uint32_t addr, uint8_t *data, uint32_t len)
@@ -209,10 +207,83 @@ int dfu_storage_read(uint32_t addr, uint8_t *data, uint32_t len)
     }
     return 0;
 }
+#elif (DFU_STORAGE_SPI_STM32 == 1) && (DFU_STORAGE_SPI_N25Q == 1)
 
-#else /* !(DFU_STORAGE_EXT_FLASH == 1) */
+#include "n25q128a.h"
+int dfu_storage_read(uint32_t addr, uint8_t *data, uint32_t len)
+{
+    N25Q_ReadDataFromAddress(data, addr, len);
+    return 0;
+}
 
-#endif /* End of (DFU_STORAGE_EXT_FLASH == 1) */
+int dfu_storage_erase(uint32_t addr, uint32_t len)
+{
+    // Calculate number of sectors to erase
+    uint32_t num_sector = ceil((float) len / N25Q128A_SECTOR_SIZE);
+    // Erase sectors
+    for (uint32_t i = 0; i < num_sector; i++)
+    {
+        N25Q_SectorErase(addr + i * N25Q128A_SECTOR_SIZE);
+    }
+    return 0;
+}
+
+int dfu_storage_write(uint32_t addr, uint8_t *data, uint32_t len) {
+    uint32_t remaining_len = len;
+    uint32_t current_addr = addr;
+    int result = 0;
+
+    while (remaining_len > 0) {
+        uint32_t write_len = (remaining_len > FLASH_N25_MAX_WRITE_SIZE) ? FLASH_N25_MAX_WRITE_SIZE : remaining_len;
+        uint32_t page_start_addr = current_addr & ~(FLASH_N25_MAX_WRITE_SIZE - 1);
+
+        // Check if the write operation crosses a page boundary
+        if ((current_addr + write_len) > (page_start_addr + FLASH_N25_MAX_WRITE_SIZE))
+        {
+            // Write the data in two parts to avoid crossing the page boundary
+            uint32_t first_part_len = FLASH_N25_MAX_WRITE_SIZE - (current_addr - page_start_addr);
+            uint32_t second_part_len = write_len - first_part_len;
+
+            // Write the first part
+            N25Q_ProgramFromAddress(data, current_addr, first_part_len);
+
+            if (result != 0) {
+                return result;
+            }
+
+            // Write the second part
+            N25Q_ProgramFromAddress(data + first_part_len, page_start_addr + FLASH_N25_MAX_WRITE_SIZE, second_part_len);
+
+            if (result != 0) {
+                return result;
+            }
+        }
+        else
+        {
+            // Write the data in a single operation
+            N25Q_ProgramFromAddress(data, current_addr, write_len);
+
+            if (result != 0) {
+                return result;
+            }
+        }
+        // Readback and verify
+        uint8_t read_data[FLASH_N25_MAX_WRITE_SIZE];
+        N25Q_ReadDataFromAddress(read_data, current_addr, write_len);
+        if (memcmp(data, read_data, write_len) != 0)
+        {
+            LOG_ERR("Failed to write %dB storage at address: 0X%X", write_len, current_addr);
+            return -1;
+        }
+        remaining_len -= write_len;
+        current_addr += write_len;
+        data += write_len;
+    }
+    return 0;
+}
+
+#else /* !(DFU_STORAGE_SPI_ZEPHYR == 1) */
+#endif /* End of (DFU_STORAGE_SPI_ZEPHYR == 1) */
 
 /******************************************************************************
  * DFU Functions
@@ -233,31 +304,6 @@ int dfu_image_read_header(uint32_t img_start_addr, image_header_t *img_header_da
         LOG_ERR("Failed to read image header\r\n");
         return -1;
     }
-    return 0;
-}
-
-/*
- * @brief   This function is used to validate the image header by magic number
- * @param   Start address of the image header
- * @return  0 if the image header is valid, negative value otherwise
- */
-int dfu_image_validate_header(uint32_t img_start_addr)
-{
-    // Read image header
-    image_header_t image_header = {0};
-    if (dfu_image_read_header(img_start_addr, &image_header) != 0)
-    {
-        LOG_ERR("Failed to read image header\r\n");
-        return -1;
-    }
-
-    if (image_header.image_magic != (uint32_t) IMAGE_MAGIC_NUMBER)
-    {
-        LOG_ERR("Image magic number is invalid: 0X%X instead of 0X%X\r\n", image_header.image_magic,
-                IMAGE_MAGIC_NUMBER);
-        return -1;
-    }
-    // TODO - TMT: Add image header CRC/Checksum if needed
     return 0;
 }
 
@@ -324,10 +370,11 @@ int dfu_image_clear(uint32_t img_start_addr)
  * @param dest_img_addr: destination address to write image header
  * @return int: 0 if the image header is committed, negative value otherwise
  */
-int dfu_image_commit(image_header_t *img_header_data, uint32_t dest_img_addr)
+int dfu_image_commit(image_header_t *img_header_data, uint32_t hdr_addr)
 {
     assert(img_header_data != NULL);
     uint8_t read_data_buf[img_header_data->img_data_size];
+    memset(read_data_buf, 0, sizeof(read_data_buf));
     // Calculate CRC of the image inside the storage
     if (dfu_storage_read(img_header_data->img_data_start_addr, read_data_buf, img_header_data->img_data_size) != 0)
     {
@@ -345,9 +392,9 @@ int dfu_image_commit(image_header_t *img_header_data, uint32_t dest_img_addr)
     }
 
     // Write image header
-    if (0 != dfu_storage_write(dest_img_addr, (uint8_t *) img_header_data, sizeof(image_header_t)))
+    if (0 != dfu_storage_write(hdr_addr, (uint8_t *) img_header_data, sizeof(image_header_t)))
     {
-        LOG_ERR(" dfu_image_commit() Failed to write image header at address: 0X%X\r\n", dest_img_addr);
+        LOG_ERR(" dfu_image_commit() Failed to write image header at address: 0X%X\r\n", hdr_addr);
         return -1;
     }
     return 0;
@@ -366,7 +413,7 @@ int dfu_image_update(image_header_t *img_meta_data, uint8_t *p_data, uint32_t da
     assert(img_meta_data != NULL);
 
     // Prepare storage for new image
-    uint32_t img_total_size = sizeof(image_header_t) + data_len;
+    uint32_t img_total_size = data_len + sizeof(image_header_t);
 
     // Erase the image area
     if (0 != dfu_storage_erase(dest_img_addr, img_total_size))
@@ -376,22 +423,21 @@ int dfu_image_update(image_header_t *img_meta_data, uint8_t *p_data, uint32_t da
     }
 
     // Write image content
-    if (0 != dfu_storage_write(dest_img_addr + sizeof(image_header_t), p_data, data_len))
+    if (0 != dfu_storage_write(dest_img_addr, p_data, data_len))
     {
-        LOG_ERR("Failed to write %dB image data at address: 0X%X\r\n", data_len,
-                dest_img_addr + sizeof(image_header_t));
+        LOG_ERR("Failed to write %dB image data at address: 0X%X\r\n", data_len, dest_img_addr);
         return -1;
     }
 
     // Update image header based on new image data
     img_meta_data->img_data_size = data_len;
-    img_meta_data->img_data_start_addr = dest_img_addr + sizeof(image_header_t);
+    img_meta_data->img_data_start_addr = dest_img_addr;
     // Calcuate CRC of new image data
     uint32_t crc_new_data = crc32(p_data, data_len);
     img_meta_data->image_data_crc = crc_new_data;
 
     // Commit image
-    if (0 != dfu_image_commit(img_meta_data, dest_img_addr))
+    if (0 != dfu_image_commit(img_meta_data, dest_img_addr + data_len))
     {
         LOG_ERR("Failed to commit image\r\n");
         return -1;
@@ -399,14 +445,14 @@ int dfu_image_update(image_header_t *img_meta_data, uint8_t *p_data, uint32_t da
     return 0;
 }
 
-int is_image_valid(uint32_t addr)
+/*
+ * @brief: Check if the image at the given address is valid by comparing header values
+ *         with image default value (default_image_header)
+ * @param addr: address of the image header
+ * @return int: 0 if the image is valid, negative value otherwise 
+ */
+int dfu_image_is_valid(uint32_t addr)
 {
-    // Validate firmware in the storage
-    if (dfu_image_validate_header(addr))
-    {
-        LOG_WRN("No valid image at 0x%X\r\n", addr);
-        return -1;
-    }
     // Retrieve image header
     image_header_t read_header = {0};
     if (dfu_image_read_header(addr, &read_header) != 0)
@@ -415,37 +461,30 @@ int is_image_valid(uint32_t addr)
         return -1;
     }
 
-#if 0
+    if (read_header.image_magic != IMAGE_MAGIC_NUMBER)
+    {
+        LOG_WRN("Invalid image magic number: 0x%X\r\n", read_header.image_magic);
+        return -1;
+    }
 
+    // Check version
+	if (IMAGE_FIRMWARE_MAJOR_VERSION    != read_header.image_data_version_major ||
+		IMAGE_FIRMWARE_MINOR_VERSION    != read_header.image_data_version_minor ||
+		IMAGE_FIRMWARE_REVISION_VERSION != read_header.image_data_version_revision )
+	{
+		LOG_WRN("Current version: %d.%d.%d is mismatch with %d.%d.%d in storage\r\n",
+		IMAGE_FIRMWARE_MAJOR_VERSION, IMAGE_FIRMWARE_MINOR_VERSION, IMAGE_FIRMWARE_REVISION_VERSION,
+			read_header.image_data_version_major, read_header.image_data_version_minor, read_header.image_data_version_revision);
+		return -1;
+	}
 
-    	// Check version
-    	if (default_image_header.image_data_version_major 	 != read_header.image_data_version_major ||
-    		default_image_header.image_data_version_minor 	 != read_header.image_data_version_minor ||
-    		default_image_header.image_data_version_revision != read_header.image_data_version_revision)
-    	{
-    		LOG_WRN("Current version: %d.%d.%d is mismatch with %d.%d.%d in storage\r\n",
-    			default_image_header.image_data_version_major, default_image_header.image_data_version_minor, default_image_header.image_data_version_revision,
-    			read_header.image_data_version_major, read_header.image_data_version_minor, read_header.image_data_version_revision);
-    		return -1;
-    	}
-
-
-    	// Check image size
-    	if (default_image_header.img_data_size != read_header.img_data_size)
-    	{
-    		LOG_WRN("Current image size: %dB is mismatch with %dB in storage\r\n",
-    			default_image_header.img_data_size, read_header.img_data_size);
-    		return -1;
-    	}
-
-    	// Check image type
-    	if (default_image_header.image_data_type != read_header.image_data_type)
-    	{
-    		LOG_WRN("Current image type: %d is mismatch with %d in storage\r\n",
-    			default_image_header.image_data_type, read_header.image_data_type);
-    		return -1;
-    	}
-#endif /* End of 0 */
+	// Check image type
+	if (IMAGE_TYPE_RFIC_FIRMWARE != read_header.image_data_type)
+	{
+		LOG_WRN("Current image type: %d is mismatch with %d in storage\r\n",
+			IMAGE_TYPE_RFIC_FIRMWARE, read_header.image_data_type);
+		return -1;
+	}
 
     // Check CRC of the image data in the storage
     if (dfu_image_validate_data_content(addr) != 0)
@@ -454,13 +493,13 @@ int is_image_valid(uint32_t addr)
         return -1;
     }
 
-    LOG_INF("Valid image found at 0x%X, type: %d, length: %d \r\n", addr, read_header.image_data_type,
-            read_header.img_data_size);
-    LOG_INF("Version: %d.%d.%d \r\n", read_header.image_data_version_major, read_header.image_data_version_minor,
-            read_header.image_data_version_revision);
+    LOG_INF("Valid image found at 0x%X, type: %d, length: %d \r\n", 
+        read_header.img_data_start_addr, read_header.image_data_type, read_header.img_data_size);
+    LOG_INF("Version: %d.%d.%d \r\n",
+		read_header.image_data_version_major, read_header.image_data_version_minor, read_header.image_data_version_revision);
     LOG_INF("CRC: 0x%X \r\n", read_header.image_data_crc);
-    LOG_INF("Data content: \r\n");
 #if (DFU_DUMP_IMAGE_DATA != 0)
+    LOG_INF("Data content: \r\n");
     uint8_t read_data_buf[read_header.img_data_size];
     memset(read_data_buf, 0, read_header.img_data_size);
     if (dfu_storage_read(read_header.img_data_start_addr, read_data_buf, read_header.img_data_size) != 0)
@@ -476,4 +515,52 @@ int is_image_valid(uint32_t addr)
     LOG_INF("\r\n");
 #endif /* End of (DFU_DUMP_IMAGE_DATA != 0 */)
     return 0;
+}
+
+/**
+ * @brief Update the firmware image in the storage
+ * @param addr: address of the image header
+ * @return int 
+ */
+int dfu_fw_image_update(uint8_t* fw_data, uint32_t fw_len, uint32_t addr)
+{
+	int retval = 0;
+    uint32_t header_addr = addr + fw_len;
+    image_header_t default_image_header = {
+        .image_magic = IMAGE_MAGIC_NUMBER,
+        .image_data_type = IMAGE_TYPE_RFIC_FIRMWARE,
+        .image_data_version_major = IMAGE_FIRMWARE_MAJOR_VERSION,
+        .image_data_version_minor = IMAGE_FIRMWARE_MINOR_VERSION,
+        .image_data_version_revision = IMAGE_FIRMWARE_REVISION_VERSION,
+        .img_data_size = fw_len,
+        .img_data_start_addr = addr,
+    };
+    //Check and update new img if needed
+    if (dfu_image_is_valid(header_addr))
+	{
+        uint8_t img_update_retry = 5;
+		LOG_WRN("Invalid image, perform DFU update");
+		// Try to update image with max img_update_retry attempts
+		for (uint8_t retry = 0; retry <= img_update_retry; retry++)
+		{
+			if (retry == img_update_retry)
+			{
+				LOG_ERR("dfu_fw_image_update() Failed to update image after %d attempts", retry);
+				retval = -1;
+				break;
+			}
+
+			if (dfu_image_update(&default_image_header, fw_data, default_image_header.img_data_size, default_image_header.img_data_start_addr) != 0)
+			{
+				LOG_ERR("dfu_fw_image_update() Failed to update image, (%d/%d)", retry + 1, img_update_retry);
+			}
+			else
+			{
+				LOG_INF("Image updated successfully");
+				retval = 0;
+				break;
+			}
+		}
+	}
+    return retval;
 }

@@ -41,7 +41,7 @@ extern "C" {
 
 /* Exported constants --------------------------------------------------------*/
 /* USER CODE BEGIN EC */
-#define FLASH_N25_DBG_MSG_EN (1)
+#define FLASH_N25_DBG_MSG_EN (0)
 /* USER CODE END EC */
 
 /* Exported macro ------------------------------------------------------------*/
