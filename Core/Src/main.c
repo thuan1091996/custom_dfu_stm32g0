@@ -185,6 +185,29 @@ int flash_n25q_init(void)
         printf("[ERR] Flash capacity is not correct \r\n");
     }
 
+    int reg_status = N25Q_ReadLockRegister(FLASH_N25_FW_START_ADDR);
+    if(reg_status == 0)
+    {
+        printf("[INFO] Flash is unlocked \r\n");
+    }
+    else
+    {
+        printf("[ERR] Flash is locked \r\n");
+        return -1;
+    }
+    // Read status register
+    reg_status = N25Q_ReadStatusRegister();
+    // Check if bit 2,3,4, 6 are set (blocked)
+    if ((reg_status & 0x5C) != 0)
+    {
+        printf("[ERR] Flash is in block protection mode \r\n");
+        printf("Unlocking flash ... \r\n");
+        // Unlock flash, clear bit 2,3,4, 6,7
+        reg_status &= ~(0xDC);
+        N25Q_WriteStatusRegister(reg_status);
+        reg_status = N25Q_ReadStatusRegister();
+    }
+
     return 0;
 }
 
